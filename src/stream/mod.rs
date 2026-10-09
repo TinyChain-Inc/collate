@@ -2,11 +2,13 @@ pub use diff::*;
 pub use merge::*;
 pub use try_diff::*;
 pub use try_merge::*;
+pub use try_union::try_union;
 
 mod diff;
 mod merge;
 mod try_diff;
 mod try_merge;
+mod try_union;
 
 #[cfg(test)]
 mod tests {

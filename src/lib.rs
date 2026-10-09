@@ -8,7 +8,8 @@
 //!
 //! Use the "stream" feature flag to enable `diff` and `try_diff` functions to compute the
 //! difference between two collated `Stream`s, and the `merge` and `try_merge` functions
-//! to merge two collated `Stream`s.
+//! to merge two collated `Stream`s. `try_union` merges a finite collection of
+//! fallible streams and removes duplicates within and across inputs.
 
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -56,9 +57,7 @@ impl<T> Default for Collator<T> {
 
 impl<T> Clone for Collator<T> {
     fn clone(&self) -> Self {
-        Self {
-            phantom: PhantomData,
-        }
+        *self
     }
 }
 
@@ -161,20 +160,23 @@ pub trait OverlapsRange<T, C: Collate> {
     /// Check whether `other` lies entirely within `self` according to the given `collator`.
     #[inline]
     fn contains(&self, other: &T, collator: &C) -> bool {
-        match self.overlaps(other, collator) {
-            Overlap::Wide | Overlap::Equal => true,
-            _ => false,
-        }
+        matches!(
+            self.overlaps(other, collator),
+            Overlap::Wide | Overlap::Equal
+        )
     }
 
     /// Check whether `other` lies partially within `self` according to the given `collator`.
     #[inline]
     fn contains_partial(&self, other: &T, collator: &C) -> bool {
-        match self.overlaps(other, collator) {
-            Overlap::Narrow | Overlap::Equal => true,
-            Overlap::WideLess | Overlap::Wide | Overlap::WideGreater => true,
-            _ => false,
-        }
+        matches!(
+            self.overlaps(other, collator),
+            Overlap::Narrow
+                | Overlap::Equal
+                | Overlap::WideLess
+                | Overlap::Wide
+                | Overlap::WideGreater
+        )
     }
 
     /// Check whether `self` overlaps `other` according to the given `collator`.
@@ -318,10 +320,10 @@ overlaps_range!(
 pub trait OverlapsValue<T, C: Collate> {
     /// Return `true` if this range contains `value` according to `collator`.
     fn contains_value(&self, value: &T, collator: &C) -> bool {
-        match self.overlaps_value(value, collator) {
-            Overlap::Less | Overlap::Greater => false,
-            _ => true,
-        }
+        !matches!(
+            self.overlaps_value(value, collator),
+            Overlap::Less | Overlap::Greater
+        )
     }
 
     /// Return `true` if this range overlaps `value` according to `collator`.
