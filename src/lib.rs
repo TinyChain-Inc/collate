@@ -9,7 +9,7 @@
 //! Use the "stream" feature flag to enable `diff` and `try_diff` functions to compute the
 //! difference between two collated `Stream`s, and the `merge` and `try_merge` functions
 //! to merge two collated `Stream`s. `try_union` merges a finite collection of
-//! fallible streams and removes duplicates within and across inputs.
+//! fallible streams and removes collation-equivalent values within and across inputs.
 
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -24,6 +24,29 @@ pub use stream::*;
 mod stream;
 
 /// A collator for type `Value`.
+///
+/// Collation equivalence (`cmp(a, b) == Ordering::Equal`) need not mean value
+/// equality (`a == b`). For example, distinct complex values can have equal norms.
+/// Equal values must collate equally; the reverse implication is not required.
+/// Lookup by value must inspect the equivalent group rather than assume that its
+/// first member is the requested value. `Eq` on this trait compares collator
+/// configurations, not the values they order.
+///
+/// ```
+/// use collate::Collate;
+/// use std::cmp::Ordering;
+///
+/// #[derive(Eq, PartialEq)]
+/// struct Magnitude;
+/// impl Collate for Magnitude {
+///     type Value = i32;
+///     fn cmp(&self, a: &i32, b: &i32) -> Ordering {
+///         a.unsigned_abs().cmp(&b.unsigned_abs())
+///     }
+/// }
+/// assert_eq!(Magnitude.cmp(&-3, &3), Ordering::Equal);
+/// assert_ne!(-3, 3);
+/// ```
 pub trait Collate: Sized + Eq {
     type Value;
 
