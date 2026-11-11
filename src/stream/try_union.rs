@@ -3,10 +3,8 @@ use std::task::Poll;
 
 use futures::{Stream, TryStream, TryStreamExt};
 
+use super::READY_WORK_STEPS;
 use crate::CollateRef;
-
-// Bound synchronous progress across ready inputs, including duplicate runs.
-const READY_WORK_STEPS: usize = 128;
 
 /// Return the unique union of a finite collection of collated streams.
 ///
