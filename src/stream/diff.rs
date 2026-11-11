@@ -5,6 +5,7 @@ use std::task::{ready, Context, Poll};
 use futures::stream::{Fuse, Stream, StreamExt};
 use pin_project::pin_project;
 
+use super::READY_WORK_STEPS;
 use crate::CollateRef;
 
 /// The stream type returned by [`diff`].
@@ -33,8 +34,15 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cxt: &mut Context) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
+        let mut remaining = READY_WORK_STEPS;
 
         Poll::Ready(loop {
+            if remaining == 0 {
+                cxt.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            remaining -= 1;
+
             let left_done = if this.left.is_done() {
                 true
             } else if this.pending_left.is_none() {
@@ -48,6 +56,10 @@ where
             } else {
                 false
             };
+
+            if left_done {
+                break None;
+            }
 
             let right_done = if this.right.is_done() {
                 true
@@ -84,8 +96,6 @@ where
                 }
             } else if right_done && this.pending_left.is_some() {
                 break this.pending_left.take();
-            } else if left_done {
-                break None;
             }
         })
     }

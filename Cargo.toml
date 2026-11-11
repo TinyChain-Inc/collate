@@ -5,7 +5,7 @@ authors = ["code@tinychain.net"]
 edition = "2021"
 license = "Apache-2.0"
 description = "Traits and a data structure to support collation and bisection"
-repository = "http://github.com/haydnv/collate"
+repository = "https://github.com/TinyChain-Inc/collate"
 readme = "README.md"
 
 categories = ["algorithms", "rust-patterns"]

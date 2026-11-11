@@ -10,12 +10,17 @@ mod try_diff;
 mod try_merge;
 mod try_union;
 
+// Bound synchronous progress across ready inputs, including matching runs.
+const READY_WORK_STEPS: usize = 128;
+
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+
+    use futures::stream::{self, StreamExt, TryStreamExt};
+
     use super::*;
     use crate::Collator;
-    use futures::stream::{self, StreamExt, TryStreamExt};
-    use std::fmt;
 
     #[derive(Debug)]
     struct Error(String);
