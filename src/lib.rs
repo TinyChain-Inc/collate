@@ -52,6 +52,13 @@ pub trait Collate: Sized + Eq {
 
     /// Return the collation of the `left` value relative to the `right` value.
     fn cmp(&self, left: &Self::Value, right: &Self::Value) -> Ordering;
+
+    /// Refine an ordinary collation tie without changing range equivalence.
+    /// Equal values must remain tied. The refinement must be a consistent order
+    /// within each equivalent group; the default preserves the original ties.
+    fn cmp_tiebreak(&self, _left: &Self::Value, _right: &Self::Value) -> Ordering {
+        Ordering::Equal
+    }
 }
 
 pub trait CollateRef<T: ?Sized>: Collate {
@@ -276,69 +283,25 @@ macro_rules! overlaps_range {
     };
 }
 
-overlaps_range!(Range<C::Value>, (Bound<C::Value>, Bound<C::Value>));
-overlaps_range!(Range<C::Value>, Range<C::Value>);
-overlaps_range!(Range<C::Value>, RangeFull);
-overlaps_range!(Range<C::Value>, RangeFrom<C::Value>);
-overlaps_range!(Range<C::Value>, RangeInclusive<C::Value>);
-overlaps_range!(Range<C::Value>, RangeTo<C::Value>);
-overlaps_range!(Range<C::Value>, RangeToInclusive<C::Value>);
+macro_rules! overlaps_ranges {
+    ([$($all:ty),+]; $left:ty $(, $rest:ty)*) => {
+        $(overlaps_range!($left, $all);)+
+        overlaps_ranges!([$($all),+]; $($rest),*);
+    };
+    ([$($all:ty),+];) => {};
+    ($($range:ty),+ $(,)?) => {
+        overlaps_ranges!([$($range),+]; $($range),+);
+    };
+}
 
-overlaps_range!(RangeFull, (Bound<C::Value>, Bound<C::Value>));
-overlaps_range!(RangeFull, Range<C::Value>);
-overlaps_range!(RangeFull, RangeFull);
-overlaps_range!(RangeFull, RangeFrom<C::Value>);
-overlaps_range!(RangeFull, RangeInclusive<C::Value>);
-overlaps_range!(RangeFull, RangeTo<C::Value>);
-overlaps_range!(RangeFull, RangeToInclusive<C::Value>);
-
-overlaps_range!(RangeFrom<C::Value>, (Bound<C::Value>, Bound<C::Value>));
-overlaps_range!(RangeFrom<C::Value>, Range<C::Value>);
-overlaps_range!(RangeFrom<C::Value>, RangeFull);
-overlaps_range!(RangeFrom<C::Value>, RangeFrom<C::Value>);
-overlaps_range!(RangeFrom<C::Value>, RangeInclusive<C::Value>);
-overlaps_range!(RangeFrom<C::Value>, RangeTo<C::Value>);
-overlaps_range!(RangeFrom<C::Value>, RangeToInclusive<C::Value>);
-
-overlaps_range!(RangeTo<C::Value>, (Bound<C::Value>, Bound<C::Value>));
-overlaps_range!(RangeTo<C::Value>, Range<C::Value>);
-overlaps_range!(RangeTo<C::Value>, RangeFull);
-overlaps_range!(RangeTo<C::Value>, RangeFrom<C::Value>);
-overlaps_range!(RangeTo<C::Value>, RangeInclusive<C::Value>);
-overlaps_range!(RangeTo<C::Value>, RangeTo<C::Value>);
-overlaps_range!(RangeTo<C::Value>, RangeToInclusive<C::Value>);
-
-overlaps_range!(RangeInclusive<C::Value>, (Bound<C::Value>, Bound<C::Value>));
-overlaps_range!(RangeInclusive<C::Value>, Range<C::Value>);
-overlaps_range!(RangeInclusive<C::Value>, RangeFull);
-overlaps_range!(RangeInclusive<C::Value>, RangeFrom<C::Value>);
-overlaps_range!(RangeInclusive<C::Value>, RangeInclusive<C::Value>);
-overlaps_range!(RangeInclusive<C::Value>, RangeTo<C::Value>);
-overlaps_range!(RangeInclusive<C::Value>, RangeToInclusive<C::Value>);
-
-overlaps_range!(
+overlaps_ranges!(
+    (Bound<C::Value>, Bound<C::Value>),
+    Range<C::Value>,
+    RangeFull,
+    RangeFrom<C::Value>,
+    RangeInclusive<C::Value>,
+    RangeTo<C::Value>,
     RangeToInclusive<C::Value>,
-    (Bound<C::Value>, Bound<C::Value>)
-);
-overlaps_range!(RangeToInclusive<C::Value>, Range<C::Value>);
-overlaps_range!(RangeToInclusive<C::Value>, RangeFull);
-overlaps_range!(RangeToInclusive<C::Value>, RangeFrom<C::Value>);
-overlaps_range!(RangeToInclusive<C::Value>, RangeInclusive<C::Value>);
-overlaps_range!(RangeToInclusive<C::Value>, RangeTo<C::Value>);
-overlaps_range!(RangeToInclusive<C::Value>, RangeToInclusive<C::Value>);
-
-overlaps_range!(
-    (Bound<C::Value>, Bound<C::Value>),
-    (Bound<C::Value>, Bound<C::Value>)
-);
-overlaps_range!((Bound<C::Value>, Bound<C::Value>), Range<C::Value>);
-overlaps_range!((Bound<C::Value>, Bound<C::Value>), RangeFull);
-overlaps_range!((Bound<C::Value>, Bound<C::Value>), RangeFrom<C::Value>);
-overlaps_range!((Bound<C::Value>, Bound<C::Value>), RangeInclusive<C::Value>);
-overlaps_range!((Bound<C::Value>, Bound<C::Value>), RangeTo<C::Value>);
-overlaps_range!(
-    (Bound<C::Value>, Bound<C::Value>),
-    RangeToInclusive<C::Value>
 );
 
 /// Range-value comparison methods
