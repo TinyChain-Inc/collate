@@ -2,124 +2,83 @@ use std::cmp::Ordering;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
-use futures::stream::{Fuse, Stream, StreamExt, TryStream};
-use pin_project::pin_project;
+use futures::stream::{IntoStream, Peekable, Stream, StreamExt, TryStream, TryStreamExt};
 
 use super::READY_WORK_STEPS;
 use crate::CollateRef;
 
-/// The stream type returned by [`diff`].
-/// The implementation of this stream is based on
-/// [`stream::select`](https://github.com/rust-lang/futures-rs/blob/master/futures-util/src/stream/select.rs).
-#[pin_project]
-pub struct TryDiff<C, T, L, R> {
+/// The stream returned by [`try_diff`].
+pub struct TryDiff<C, T, L: TryStream<Ok = T>, R: TryStream<Ok = T>> {
     collator: C,
+    left: Peekable<IntoStream<L>>,
+    right: Peekable<IntoStream<R>>,
+}
 
-    #[pin]
-    left: Fuse<L>,
-    #[pin]
-    right: Fuse<R>,
-
-    pending_left: Option<T>,
-    pending_right: Option<T>,
+// Only inputs participate in pinning. The collator and buffered values are
+// never projected as pinned, so they need no Unpin bound.
+impl<C, T, L, R> Unpin for TryDiff<C, T, L, R>
+where
+    L: TryStream<Ok = T> + Unpin,
+    R: TryStream<Ok = T> + Unpin,
+{
 }
 
 impl<C, T, E, L, R> Stream for TryDiff<C, T, L, R>
 where
     C: CollateRef<T>,
-    E: std::error::Error,
-    Fuse<L>: TryStream<Ok = T, Error = E> + Unpin,
-    Fuse<R>: TryStream<Ok = T, Error = E> + Unpin,
+    L: TryStream<Ok = T, Error = E> + Unpin,
+    R: TryStream<Ok = T, Error = E> + Unpin,
 {
     type Item = Result<T, E>;
 
     fn poll_next(self: Pin<&mut Self>, cxt: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        let mut remaining = READY_WORK_STEPS;
-
-        Poll::Ready(loop {
-            if remaining == 0 {
-                cxt.waker().wake_by_ref();
-                return Poll::Pending;
-            }
-            remaining -= 1;
-
-            let left_done = if this.left.is_done() {
-                true
-            } else if this.pending_left.is_none() {
-                match ready!(this.left.as_mut().try_poll_next(cxt)) {
-                    Some(Ok(value)) => {
-                        *this.pending_left = Some(value);
-                        false
-                    }
-                    Some(Err(cause)) => break Some(Err(cause)),
-                    None => true,
-                }
-            } else {
-                false
+        let this = self.get_mut();
+        for _ in 0..READY_WORK_STEPS {
+            let left = match ready!(Pin::new(&mut this.left).poll_peek(cxt)) {
+                Some(Ok(value)) => value,
+                Some(Err(_)) => return this.left.poll_next_unpin(cxt),
+                None => return Poll::Ready(None),
             };
 
-            if left_done {
-                break None;
-            }
-
-            let right_done = if this.right.is_done() {
-                true
-            } else if this.pending_right.is_none() {
-                match ready!(this.right.as_mut().try_poll_next(cxt)) {
-                    Some(Ok(value)) => {
-                        *this.pending_right = Some(value);
-                        false
-                    }
-                    Some(Err(cause)) => break Some(Err(cause)),
-                    None => true,
-                }
-            } else {
-                false
+            let right = match ready!(Pin::new(&mut this.right).poll_peek(cxt)) {
+                Some(Ok(value)) => value,
+                Some(Err(_)) => return this.right.poll_next_unpin(cxt),
+                None => return this.left.poll_next_unpin(cxt),
             };
 
-            if this.pending_left.is_some() && this.pending_right.is_some() {
-                let l_value = this.pending_left.as_ref().unwrap();
-                let r_value = this.pending_right.as_ref().unwrap();
-
-                match this.collator.cmp_ref(l_value, r_value) {
-                    Ordering::Equal => {
-                        // this value is present in the right stream, so drop it
-                        this.pending_left.take();
-                        this.pending_right.take();
-                    }
-                    Ordering::Less => {
-                        // this value is not present in the right stream, so return it
-                        break this.pending_left.take().map(Ok);
-                    }
-                    Ordering::Greater => {
-                        // this value could be present in the right stream--wait and see
-                        this.pending_right.take();
-                    }
+            match this.collator.cmp_ref(left, right) {
+                Ordering::Equal => {
+                    ready!(this.left.poll_next_unpin(cxt));
+                    ready!(this.right.poll_next_unpin(cxt));
                 }
-            } else if right_done && this.pending_left.is_some() {
-                break this.pending_left.take().map(Ok);
+                Ordering::Less => return this.left.poll_next_unpin(cxt),
+                Ordering::Greater => {
+                    ready!(this.right.poll_next_unpin(cxt));
+                }
             }
-        })
+        }
+
+        cxt.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 
 /// Compute the difference of two collated [`TryStream`]s,
 /// i.e. return the items in `left` that are not in `right`.
 /// Both input streams **must** be collated.
+/// Each matching right value removes one occurrence from the left input.
+/// Errors are emitted in input polling order; polling may continue afterward.
+/// Errors are forwarded unchanged and need not implement [`std::error::Error`].
 /// If either input stream is not collated, the behavior of the output stream is undefined.
 pub fn try_diff<C, T, E, L, R>(collator: C, left: L, right: R) -> TryDiff<C, T, L, R>
 where
     C: CollateRef<T>,
-    E: std::error::Error,
     L: TryStream<Ok = T, Error = E>,
     R: TryStream<Ok = T, Error = E>,
 {
     TryDiff {
         collator,
-        left: left.fuse(),
-        right: right.fuse(),
-        pending_left: None,
-        pending_right: None,
+        left: left.into_stream().peekable(),
+        right: right.into_stream().peekable(),
     }
 }

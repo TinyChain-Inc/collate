@@ -3,17 +3,11 @@ Rust collation utilities
 
 Example usage:
 ```rust
-use collate::*;
+use collate::{Collator, Overlap, OverlapsRange};
 
-let collator = Collator::default();
-let collection = [
-    [1, 2, 3],
-    [2, 3, 4],
-    [3, 4, 5],
-];
-
-assert_eq!(collator.bisect_left(&collection, &[1]), 0);
-assert_eq!(collator.bisect_right(&collection, &[1]), 1);
+let collator = Collator::<i32>::default();
+assert_eq!((1..4).overlaps(&(3..5), &collator), Overlap::WideLess);
+assert!(OverlapsRange::contains(&(1..=4), &(2..=4), &collator));
 ```
 
 With the `stream` feature, `try_union(collator, streams)` combines a finite vector
@@ -21,11 +15,31 @@ of sorted fallible streams into sorted values unique by collation (not necessari
 input, polls inputs in order, and releases them on completion, error, or drop.
 The flat traversal yields cooperatively without nesting two-input merges.
 
+Two-input `merge` and `try_merge` retain the left representative when heads
+collate equally, consuming one occurrence from each input. Repeated values
+within one input are preserved. `diff` and `try_diff` remove one left occurrence
+for each matching right occurrence and stop when the left input ends. The
+fallible two-input streams emit errors in polling order and allow subsequent
+polling to continue. All four APIs retain buffered heads until consumption or
+drop; their values need no `Ord` or `Clone`, and collators need no `Clone` or `Sync`.
+
+`MergeQueue` provides a bounded priority queue of ready source indices. `push`
+queues a ready source, `peek` identifies the first source, and `pop` dequeues it
+before its head is consumed or replaced. Equal heads follow input order.
+Operations borrow caller-owned heads and their collator, with logarithmic work
+per push/pop. Values need no `Ord`, and the collator needs no cloning or shared
+ownership. Consumers retain their own polling, deduplication, and value resolution.
+
 `Collate::cmp` defines collation equivalence independently of `Eq`: equal values
 must collate equally, but equal collation need not imply equal values. A complex
 norm collator, for example, can group different complex values. Native lookups
 must inspect that group for semantic equality; stream union deliberately emits
 one representative per collation class.
+
+Each `Collate` implementation defines one comparison. Owners may compose ordinary
+comparators with `Ordering::then_with`; complete-key comparisons apply the secondary
+order only after all primary columns compare equal. Comparators require no intrinsic
+`Ord` implementation. Index owners define which comparator serves each operation.
 
 Range containment includes inner ranges sharing either endpoint. Partial overlaps
 remain directional; owned and borrowed bounds use the same comparison.
