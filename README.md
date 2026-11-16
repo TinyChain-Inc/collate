@@ -36,6 +36,11 @@ norm collator, for example, can group different complex values. Native lookups
 must inspect that group for semantic equality; stream union deliberately emits
 one representative per collation class.
 
+Each `Collate` implementation defines one comparison. Owners may compose ordinary
+comparators with `Ordering::then_with`; complete-key comparisons apply the secondary
+order only after all primary columns compare equal. Comparators require no intrinsic
+`Ord` implementation. Index owners define which comparator serves each operation.
+
 Range containment includes inner ranges sharing either endpoint. Partial overlaps
 remain directional; owned and borrowed bounds use the same comparison.
 Empty or reversed ranges intersect nothing (`Overlap::Empty`), including other

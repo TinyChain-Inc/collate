@@ -52,13 +52,6 @@ pub trait Collate: Sized + Eq {
 
     /// Return the collation of the `left` value relative to the `right` value.
     fn cmp(&self, left: &Self::Value, right: &Self::Value) -> Ordering;
-
-    /// Refine an ordinary collation tie without changing range equivalence.
-    /// Equal values must remain tied. The refinement must be a consistent order
-    /// within each equivalent group; the default preserves the original ties.
-    fn cmp_tiebreak(&self, _left: &Self::Value, _right: &Self::Value) -> Ordering {
-        Ordering::Equal
-    }
 }
 
 pub trait CollateRef<T: ?Sized>: Collate {
